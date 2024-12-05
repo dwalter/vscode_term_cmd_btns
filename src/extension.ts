@@ -1,82 +1,115 @@
-// // The module 'vscode' contains the VS Code extensibility API
-// // Import the module and reference it with the alias vscode in your code below
-// import * as vscode from 'vscode';
+/*
+first time:
+<terminal> npm install </terminal>
 
-// // This method is called when your extension is activated
-// // Your extension is activated the very first time the command is executed
-// export function activate(context: vscode.ExtensionContext) {
+every time:
+<terminal>
+npm run compile;
+yes | vsce package;
+code --install-extension terminal-command-buttons-*.vsix;
+</terminal>
+then there will be a .vsix file created
 
-// 	// Use the console to output diagnostic information (console.log) and errors (console.error)
-// 	// This line of code will only be executed once when your extension is activated
-// 	console.log('Congratulations, your extension "terminal-command-buttons" is now active!');
+reload window with: cmd+shift+p -> Developer: Reload Window
 
-// 	// The command has been defined in the package.json file
-// 	// Now provide the implementation of the command with registerCommand
-// 	// The commandId parameter must match the command field in package.json
-// 	const disposable = vscode.commands.registerCommand('terminal-command-buttons.helloWorld', () => {
-// 		// The code you place here will be executed every time your command is executed
-// 		// Display a message box to the user
-// 		vscode.window.showInformationMessage('Hello World from Terminal Command Buttons!');
-// 	});
-
-// 	context.subscriptions.push(disposable);
-// }
-
-// // This method is called when your extension is deactivated
-// export function deactivate() {}
-
-// <terminal> ls -l </terminal>
+manually install with vscode (instead of code --install-extension terminal-command-buttons-*.vsix;):
+- Ctrl+Shift+P
+- Type "Install from VSIX"
+- Select the .vsix file you created
+- Restart VSCode
+*/
 
 import * as vscode from 'vscode';
 
 export function activate(context: vscode.ExtensionContext) {
-    // Register a custom language for terminal commands
-    const provider = vscode.languages.registerDocumentSemanticTokensProvider(
-        { language: '*' },
-        new TerminalCommandProvider(),
-        legend
-    );
+    const decorator = vscode.window.createTextEditorDecorationType({
+        before: {
+            contentText: '▶',
+            margin: '0 4px 0 0',
+            color: '#4CAF50'
+        },
+        backgroundColor: '#e7e7e7',
+        border: '1px solid #ccc',
+        borderRadius: '3px',
+        cursor: 'pointer',
+        light: {
+            backgroundColor: '#e7e7e7'
+        },
+        dark: {
+            backgroundColor: '#3a3a3a'
+        }
+    });
 
-    // Command to execute terminal command
+    let activeEditor = vscode.window.activeTextEditor;
+    if (activeEditor) {
+        updateDecorations(activeEditor, decorator);
+    }
+
+    vscode.window.onDidChangeActiveTextEditor(editor => {
+        activeEditor = editor;
+        if (editor) {
+            updateDecorations(editor, decorator);
+        }
+    }, null, context.subscriptions);
+
+    vscode.workspace.onDidChangeTextDocument(event => {
+        if (activeEditor && event.document === activeEditor.document) {
+            updateDecorations(activeEditor, decorator);
+        }
+    }, null, context.subscriptions);
+
     let disposable = vscode.commands.registerCommand('extension.executeTerminalCommand', (command: string) => {
         const terminal = vscode.window.activeTerminal || vscode.window.createTerminal();
         terminal.show();
-        terminal.sendText(command);
+        // Split by newlines and semicolons, filter empty lines, and execute each command
+        const commands = command
+            .split(/[;\n]/)
+            .map(cmd => cmd.trim())
+            .filter(cmd => cmd.length > 0);
+
+        commands.forEach((cmd, index) => {
+            // Add a small delay between commands to ensure proper order
+            setTimeout(() => {
+                terminal.sendText(cmd);
+            }, index * 100);
+        });
     });
 
-    // Register a content provider for our custom URI scheme
     const commandLinkProvider = vscode.languages.registerDocumentLinkProvider(
         { language: '*' },
         new TerminalCommandLinkProvider()
     );
 
-    context.subscriptions.push(provider, disposable, commandLinkProvider);
+    context.subscriptions.push(disposable, commandLinkProvider);
 }
 
-class TerminalCommandProvider implements vscode.DocumentSemanticTokensProvider {
-    async provideDocumentSemanticTokens(
-        document: vscode.TextDocument
-    ): Promise<vscode.SemanticTokens> {
-        const builder = new vscode.SemanticTokensBuilder();
+function updateDecorations(editor: vscode.TextEditor, decorator: vscode.TextEditorDecorationType) {
+    // Updated regex to handle multi-line content
+    const regEx = /<terminal>\s*([\s\S]*?)\s*<\/terminal>/g;
+    const text = editor.document.getText();
+    const decorations: vscode.DecorationOptions[] = [];
 
-        for (let i = 0; i < document.lineCount; i++) {
-            const line = document.lineAt(i);
-            const terminalCommandMatch = line.text.match(/<terminal>(.*?)<\/terminal>/);
+    let match;
+    while ((match = regEx.exec(text))) {
+        const startPos = editor.document.positionAt(match.index);
+        const endPos = editor.document.positionAt(match.index + match[0].length);
 
-            if (terminalCommandMatch) {
-                const startIndex = line.text.indexOf('<terminal>');
-                builder.push(
-                    i,
-                    startIndex,
-                    terminalCommandMatch[0].length,
-                    0,  // token type (command)
-                    0   // token modifier
-                );
-            }
-        }
+        // Format the hover message to show commands on separate lines
+        const commands = match[1]
+            .split(/[;\n]/)
+            .map(cmd => cmd.trim())
+            .filter(cmd => cmd.length > 0);
+        const hoverMessage = 'Commands to run:\n' + commands.map(cmd => '• ' + cmd).join('\n');
 
-        return builder.build();
+        const decoration: vscode.DecorationOptions = {
+            range: new vscode.Range(startPos, endPos),
+            hoverMessage
+        };
+
+        decorations.push(decoration);
     }
+
+    editor.setDecorations(decorator, decorations);
 }
 
 class TerminalCommandLinkProvider implements vscode.DocumentLinkProvider {
@@ -84,35 +117,28 @@ class TerminalCommandLinkProvider implements vscode.DocumentLinkProvider {
         document: vscode.TextDocument
     ): vscode.DocumentLink[] {
         const links: vscode.DocumentLink[] = [];
+        const regEx = /<terminal>\s*([\s\S]*?)\s*<\/terminal>/g;
+        const text = document.getText();
 
-        for (let i = 0; i < document.lineCount; i++) {
-            const line = document.lineAt(i);
-            const terminalCommandMatch = line.text.match(/<terminal>(.*?)<\/terminal>/);
+        let match;
+        while ((match = regEx.exec(text))) {
+            const startIndex = match.index;
+            const range = new vscode.Range(
+                document.positionAt(startIndex),
+                document.positionAt(startIndex + match[0].length)
+            );
 
-            if (terminalCommandMatch) {
-                const startIndex = line.text.indexOf('<terminal>');
-                const range = new vscode.Range(
-                    new vscode.Position(i, startIndex),
-                    new vscode.Position(i, startIndex + terminalCommandMatch[0].length)
-                );
+            const commandUri = vscode.Uri.parse(
+                `command:extension.executeTerminalCommand?${encodeURIComponent(
+                    JSON.stringify(match[1].trim())
+                )}`
+            );
 
-                const commandUri = vscode.Uri.parse(
-                    `command:extension.executeTerminalCommand?${encodeURIComponent(
-                        JSON.stringify(terminalCommandMatch[1].trim())
-                    )}`
-                );
-
-                links.push(new vscode.DocumentLink(range, commandUri));
-            }
+            links.push(new vscode.DocumentLink(range, commandUri));
         }
 
         return links;
     }
 }
-
-const legend = new vscode.SemanticTokensLegend(
-    ['command'],
-    []
-);
 
 export function deactivate() {}
