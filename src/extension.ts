@@ -84,29 +84,35 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 function updateDecorations(editor: vscode.TextEditor, decorator: vscode.TextEditorDecorationType) {
-    // Updated regex to handle multi-line content
-    const regEx = /<terminal>\s*([\s\S]*?)\s*<\/terminal>/g;
     const text = editor.document.getText();
     const decorations: vscode.DecorationOptions[] = [];
 
-    let match;
-    while ((match = regEx.exec(text))) {
-        const startPos = editor.document.positionAt(match.index);
-        const endPos = editor.document.positionAt(match.index + match[0].length);
+    // Handle both XML-style and markdown-style terminal commands
+    const patterns = [
+        /<terminal>\s*([\s\S]*?)\s*<\/terminal>/g,
+        /```bash\n([\s\S]*?)```/g
+    ];
 
-        // Format the hover message to show commands on separate lines
-        const commands = match[1]
-            .split(/[;\n]/)
-            .map(cmd => cmd.trim())
-            .filter(cmd => cmd.length > 0);
-        const hoverMessage = 'Commands to run:\n' + commands.map(cmd => '• ' + cmd).join('\n');
+    for (const regEx of patterns) {
+        let match;
+        while ((match = regEx.exec(text))) {
+            const startPos = editor.document.positionAt(match.index);
+            const endPos = editor.document.positionAt(match.index + match[0].length);
 
-        const decoration: vscode.DecorationOptions = {
-            range: new vscode.Range(startPos, endPos),
-            hoverMessage
-        };
+            // Format the hover message to show commands on separate lines
+            const commands = match[1]
+                .split(/[;\n]/)
+                .map(cmd => cmd.trim())
+                .filter(cmd => cmd.length > 0);
+            const hoverMessage = 'Commands to run:\n' + commands.map(cmd => '• ' + cmd).join('\n');
 
-        decorations.push(decoration);
+            const decoration: vscode.DecorationOptions = {
+                range: new vscode.Range(startPos, endPos),
+                hoverMessage
+            };
+
+            decorations.push(decoration);
+        }
     }
 
     editor.setDecorations(decorator, decorations);
@@ -117,24 +123,30 @@ class TerminalCommandLinkProvider implements vscode.DocumentLinkProvider {
         document: vscode.TextDocument
     ): vscode.DocumentLink[] {
         const links: vscode.DocumentLink[] = [];
-        const regEx = /<terminal>\s*([\s\S]*?)\s*<\/terminal>/g;
+        const patterns = [
+            /<terminal>\s*([\s\S]*?)\s*<\/terminal>/g,
+            /```bash\n([\s\S]*?)```/g
+        ];
+
         const text = document.getText();
 
-        let match;
-        while ((match = regEx.exec(text))) {
-            const startIndex = match.index;
-            const range = new vscode.Range(
-                document.positionAt(startIndex),
-                document.positionAt(startIndex + match[0].length)
-            );
+        for (const regEx of patterns) {
+            let match;
+            while ((match = regEx.exec(text))) {
+                const startIndex = match.index;
+                const range = new vscode.Range(
+                    document.positionAt(startIndex),
+                    document.positionAt(startIndex + match[0].length)
+                );
 
-            const commandUri = vscode.Uri.parse(
-                `command:extension.executeTerminalCommand?${encodeURIComponent(
-                    JSON.stringify(match[1].trim())
-                )}`
-            );
+                const commandUri = vscode.Uri.parse(
+                    `command:extension.executeTerminalCommand?${encodeURIComponent(
+                        JSON.stringify(match[1].trim())
+                    )}`
+                );
 
-            links.push(new vscode.DocumentLink(range, commandUri));
+                links.push(new vscode.DocumentLink(range, commandUri));
+            }
         }
 
         return links;

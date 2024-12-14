@@ -13,12 +13,12 @@ cd vscode_term_cmd_btns
 ```bash
 sudo apt install npm
 npm install
+sudo npm install vsce -g
 ```
 
 ### Every time
 ```bash
 npm run compile;
-sudo npm install vsce -g
 yes | vsce package;
 code --install-extension terminal-command-buttons-*.vsix;
 ```
